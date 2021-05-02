@@ -1,14 +1,18 @@
 import joblib
-import re
+from pathlib import Path
+from nltk.tokenize import word_tokenize
+from string import punctuation
 
 
 class Correction:
     def __init__(self):
-        self.freq = joblib.load('data/vocab_freq.gz')
+        data_dir = Path(__file__).absolute().parent / 'data'
+        self.freq = joblib.load(data_dir / 'vocab_freq.gz')
         self.vocab = list(self.freq.keys())
         m = sum(self.freq.values())
         self.probs = {k: v/m for k, v in self.freq.items()}
         self.alphabet = 'آ.ا.ب.پ.ت.ث.ج.چ.ح.خ.د.ذ.ر.ز.ژ.س.ش.ص.ض.ط.ظ.ع.غ.ف.ق.ک.گ.ل.م.ن.و.ه.ی'.split('.')
+        self.puncs = punctuation + "؟؛٬"
 
     @staticmethod
     def _splits(word):
@@ -42,24 +46,36 @@ class Correction:
 
         return edit_two_set
 
+    def _all_puncs(self, token):
+        num_puncs = sum([1 for c in token if c in self.puncs])
+        return num_puncs == len(token)
+
     def _known(self, words):
         return set(w for w in words if w in self.vocab)
 
     def get_corrections(self, word, n=2, allow_switches=True, include_probs=True):
-        suggestions = (self._known([word]) or
-                       self._known(self._edit_one_letter(word, allow_switches=allow_switches)) or
-                       self._known(self._edit_two_letters(word, allow_switches=allow_switches)) or
-                       [word])
-        n_best = sorted([(w, self.probs.get(w, 0)) for w in suggestions],
-                        key=lambda x: x[1],
-                        reverse=True)[:n]
+        if self._all_puncs(word) or word.isdigit() or len(word) == 1:
+            n_best = [(word, 0)]
+        else:
+            suggestions = (self._known([word]) or
+                           self._known(self._edit_one_letter(word, allow_switches=allow_switches)) or
+                           self._known(self._edit_two_letters(word, allow_switches=allow_switches)) or
+                           [word])
+            n_best = sorted([(w, self.probs.get(w, 0)) for w in suggestions],
+                            key=lambda x: x[1],
+                            reverse=True)[:n]
+
         if not include_probs:
             n_best = [w for w, prob in n_best]
 
         return n_best
 
-    # TODO: compete the auto_correct function
-    # def auto_correct(self, sentence):
-    #    return [self.get_corrections(word, n=1, include_probs=False) for word in re.findall(r'\w+', sentence)]
+    def auto_correct(self, sentence):
+        # TODO: make spell correction using this regular algorithm is very slow! Consider adopting another approache.
+       tokens =  [(self.get_corrections(word,
+                                        n=1,
+                                        include_probs=False))[0] for word in word_tokenize(sentence)]
+       # TODO: it puts an extra space before punctuations even if there were no space
+       return ' '.join(tokens)
 
 
